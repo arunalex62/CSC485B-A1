@@ -34,6 +34,19 @@
                 }
             }
 
+            // Used this StackOverflow post for algorithm to find next power of 2.
+            // https://stackoverflow.com/questions/364985/algorithm-for-finding-the-smallest-power-of-two-thats-greater-or-equal-to-a-giv
+            // Commented out since we do not have to worry about input not being power of two.
+            //std::size_t next_power_of_two(element_t x) {
+            //    --x;
+            //    x |= x >> 1;
+            //    x |= x >> 2;
+            //    x |= x >> 4;
+            //    x |= x >> 8;
+            //    x |= x >> 16;
+            //    return x + 1;
+            //}
+
             /**
              * Your solution. Should match the CPU output.
              */
@@ -60,7 +73,6 @@
                                 // Compare and swap based on direction
                                 if (ascending) {
                                     if (data[th_id] > data[partner]) {
-                                        //printf("th_id=%d, partner=%d, data[th_id]=%u, data[partner]=%u\n", th_id, partner, data[th_id], data[partner]);
                                         element_t temp = data[th_id];
                                         data[th_id] = data[partner];
                                         data[partner] = temp;
@@ -69,7 +81,6 @@
                                 else {
                                     // Descending order
                                     if (data[th_id] < data[partner]) {
-                                       // printf("th_id=%d, partner=%d, data[th_id]=%u, data[partner]=%u\n", th_id, partner, data[th_id], data[partner]);
                                         element_t temp = data[th_id];
                                         data[th_id] = data[partner];
                                         data[partner] = temp;
@@ -81,8 +92,7 @@
                         }
                     }
 
-                    // temp solution to finalize ascending/descending
-                    // n/4 will always be either 0, 1, or even
+                    // Reverses array at invert position onwards.
                     if (th_id >= invert_at_pos) {
                         s_data[num_elements - 1 - th_id] = data[th_id];
                         __syncthreads();
@@ -91,17 +101,6 @@
                         data[out] = s_data[th_id - invert_at_pos];
                     }
                 }
-            }
-            // Used this StackOverflow post for algorithm to find next power of 2.
-            // https://stackoverflow.com/questions/364985/algorithm-for-finding-the-smallest-power-of-two-thats-greater-or-equal-to-a-giv
-            element_t next_power_of_two(element_t x) {
-                --x;
-                x |= x >> 1;
-                x |= x >> 2;
-                x |= x >> 4;
-                x |= x >> 8;
-                x |= x >> 16;
-                return x + 1;
             }
 
             __global__
@@ -113,6 +112,7 @@
 
                 if (partner > th_id && partner < num_elements) {
                     // Ascending if th_id and partner are in the same stage group (because stage shifts by 1 bit each time, this works nicely)
+                    // If direction is false, the boolean value for ascending is flipped.
                     bool ascending = ((th_id & k) == 0) ^ !direction;
 
                     // Compare and swap based on direction
@@ -140,18 +140,16 @@
              */
             void run_gpu_soln(std::vector< element_t > data, std::size_t switch_at, std::size_t n)
             {
-                // Kernel launch configurations. Feel free to change these.
-                // This is set to maximise the size of a thread block on a T4, but it hasn't
-                // been tuned. It's not known if this is optimal.
-                // 
-                // Check if input is not a power of 2.
-                if (n & (n-1)) {
-                    element_t next_power_of_2 = next_power_of_two(n);
-                    for (std::size_t i = 0; i < (next_power_of_2 - n); ++i) {
-                        data.push_back(std::numeric_limits<element_t>::max()-1);
-                    }
-                    n = next_power_of_2;
-                }
+
+                // Check if input is not a power of 2, and then pad input to a power of 2.
+                // Code has been commented out as test cases will only be powers of 2.
+                // if (n & (n-1)) {
+                //    std::size_t next_power_of_2 = next_power_of_two(n);
+                //    for (std::size_t i = 0; i < (next_power_of_2 - n); ++i) {
+                //        data.push_back(std::numeric_limits<element_t>::max()-1);
+                //    }
+                //    n = next_power_of_2;
+                //}
                 std::size_t const threads_per_block = 1024;
                 std::size_t const num_blocks = (n + threads_per_block - 1) / threads_per_block;
 
@@ -193,7 +191,8 @@
                         }
                     }
                 }
-
+                // Remove positive infinities from padded input if original input was not a power of two.
+                // Commented out since input is guaranteed to be a power of two in the test cases.
                  //std::vector<element_t> result;
                  //for (std::size_t i = 0; i < n; ++i) {
                  //    if (data[i] != std::numeric_limits<element_t>::max() - 1) {
