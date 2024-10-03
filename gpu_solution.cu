@@ -1,4 +1,4 @@
-/**
+﻿/**
  * The file in which you will implement your GPU solutions!
  */
 
@@ -6,10 +6,12 @@
 
 #include <chrono>    // for timing
 #include <iostream>  // std::cout, std::endl
+#include <limits> // for +infinity value
+#include <sstream>
 
 #include "cuda_common.h"
 
-namespace csc485b {
+    namespace csc485b {
     namespace a1 {
         namespace gpu {
 
@@ -38,14 +40,98 @@ namespace csc485b {
             __global__
                 void opposing_sort(element_t* data, std::size_t invert_at_pos, std::size_t num_elements)
             {
-                int const th_id = blockIdx.x * blockDim.x + threadIdx.x;
+                element_t const th_id = blockIdx.x * blockDim.x + threadIdx.x;
+                extern __shared__ element_t s_data[];
 
                 if (th_id < num_elements)
                 {
-                    // IMPLEMENT ME!
-                    return;
+                    // Perform Bitonic Sort but DIFFERENT
+                    for (std::size_t stage = 2; stage <= num_elements; stage <<= 1) {
+                        for (std::size_t step = stage >> 1; step > 0; step >>= 1) {
+                            // Determine the index of the element to compare with
+                            std::size_t partner = th_id ^ step;
+
+                            if (partner > th_id && partner < num_elements) {
+                                // Ascending if th_id and partner are in the same stage group (because stage shifts by 1 bit each time, this works nicely)
+                                bool ascending = (th_id & stage) == 0;
+
+                                // making the last step is hard
+
+                                // Compare and swap based on direction
+                                if (ascending) {
+                                    if (data[th_id] > data[partner]) {
+                                        //printf("th_id=%d, partner=%d, data[th_id]=%u, data[partner]=%u\n", th_id, partner, data[th_id], data[partner]);
+                                        element_t temp = data[th_id];
+                                        data[th_id] = data[partner];
+                                        data[partner] = temp;
+                                    }
+                                }
+                                else {
+                                    // Descending order
+                                    if (data[th_id] < data[partner]) {
+                                       // printf("th_id=%d, partner=%d, data[th_id]=%u, data[partner]=%u\n", th_id, partner, data[th_id], data[partner]);
+                                        element_t temp = data[th_id];
+                                        data[th_id] = data[partner];
+                                        data[partner] = temp;
+                                    }
+                                }
+                            }
+                            // Ensure synchronization of threads within the block
+                            __syncthreads();
+                        }
+                    }
+
+                    // temp solution to finalize ascending/descending
+                    // n/4 will always be either 0, 1, or even
+                    if (th_id >= invert_at_pos) {
+                        s_data[num_elements - 1 - th_id] = data[th_id];
+                        __syncthreads();
+                        int outOffset = blockDim.x * (blockIdx.x);
+                        int out = outOffset + th_id;
+                        data[out] = s_data[th_id - invert_at_pos];
+                    }
                 }
             }
+            // Used this StackOverflow post for algorithm to find next power of 2.
+            // https://stackoverflow.com/questions/364985/algorithm-for-finding-the-smallest-power-of-two-thats-greater-or-equal-to-a-giv
+            element_t next_power_of_two(element_t x) {
+                --x;
+                x |= x >> 1;
+                x |= x >> 2;
+                x |= x >> 4;
+                x |= x >> 8;
+                x |= x >> 16;
+                return x + 1;
+            }
+
+            __global__
+            void opposing_sort_step( element_t * data, std::size_t num_elements, int j, int k, bool direction )
+            {
+                int const th_id = blockIdx.x * blockDim.x + threadIdx.x;
+                // Determine the index of the element to compare with
+                int partner = th_id ^ j;
+
+                if (partner > th_id && partner < num_elements) {
+                    // Ascending if th_id and partner are in the same stage group (because stage shifts by 1 bit each time, this works nicely)
+                    bool ascending = ((th_id & k) == 0) ^ !direction;
+
+                    // Compare and swap based on direction
+                    if (ascending) {
+                        if (data[th_id] > data[partner]) {
+                            element_t temp = data[th_id];
+                            data[th_id] = data[partner];
+                            data[partner] = temp;
+                        }
+                    } else {
+                        if (data[th_id] < data[partner]) {
+                            element_t temp = data[th_id];
+                            data[th_id] = data[partner];
+                            data[partner] = temp;
+                        }
+                    }
+                }
+            }
+
 
             /**
              * Performs all the logic of allocating device vectors and copying host/input
@@ -57,6 +143,15 @@ namespace csc485b {
                 // Kernel launch configurations. Feel free to change these.
                 // This is set to maximise the size of a thread block on a T4, but it hasn't
                 // been tuned. It's not known if this is optimal.
+                // 
+                // Check if input is not a power of 2.
+                if (n & (n-1)) {
+                    element_t next_power_of_2 = next_power_of_two(n);
+                    for (std::size_t i = 0; i < (next_power_of_2 - n); ++i) {
+                        data.push_back(std::numeric_limits<element_t>::max()-1);
+                    }
+                    n = next_power_of_2;
+                }
                 std::size_t const threads_per_block = 1024;
                 std::size_t const num_blocks = (n + threads_per_block - 1) / threads_per_block;
 
@@ -74,8 +169,40 @@ namespace csc485b {
 
                 // Time the execution of the kernel that you implemented
                 auto const kernel_start = std::chrono::high_resolution_clock::now();
-                opposing_sort << < num_blocks, threads_per_block >> > (d_data, switch_at, n);
+                auto const smem_size = threads_per_block * sizeof(element_t);
+
+                // Run with a single thread block if input size allows
+                if (n <= 1024) {
+                    opposing_sort << < num_blocks, threads_per_block, smem_size >> > (d_data, switch_at, n);
+                }
+                else {
+                    // Otherwise do inter-block synchronization in CPU code
+                    int j, k;
+                    // Major step
+                    for (k = 2; k <= n; k <<= 1) {
+                        // Minor step
+                        for(j = k >> 1; j > 0; j >>= 1) {
+                        opposing_sort_step<<< num_blocks, threads_per_block>>>( d_data, n, j, k, true);
+                        }
+                    }
+                    // Re-sort last quarter in reverse order
+                    for (k = 2; k <= n; k <<= 1) {
+                        // Minor step
+                        for(j = k >> 1; j > 0; j >>= 1) {
+                        opposing_sort_step<<< num_blocks, threads_per_block>>>( d_data + switch_at, n - switch_at, j, k, false);
+                        }
+                    }
+                }
+
+                 //std::vector<element_t> result;
+                 //for (std::size_t i = 0; i < n; ++i) {
+                 //    if (data[i] != std::numeric_limits<element_t>::max() - 1) {
+                 //        result.push_back(data[i]);
+                 //    }
+                 //}
+
                 auto const kernel_end = std::chrono::high_resolution_clock::now();
+                //for (auto const x : result) std::cout << x << " "; std::cout << std::endl;
                 CHECK_ERROR("Executing kernel on device");
 
                 // After the timer ends, copy the result back, free the device vector,
@@ -89,7 +216,17 @@ namespace csc485b {
                     << std::chrono::duration_cast<std::chrono::nanoseconds>(kernel_end - kernel_start).count()
                     << " ns" << std::endl;
 
-                for (auto const x : data) std::cout << x << " "; std::cout << std::endl;
+                //for (auto const x : data) std::cout << x << " "; std::cout << std::endl;
+                std::ostringstream buffer;
+
+                // Simulate writing many strings to the buffer
+                for (std::size_t i = 0; i < n; ++i) {
+                    buffer << data[i] << " ";
+                }
+                buffer << '\n';
+
+                // Print the entire buffer content to console with a single std::cout call
+                std::cout << buffer.str();
             }
 
         } // namespace gpu
