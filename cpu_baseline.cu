@@ -40,7 +40,7 @@ namespace csc485b {
                     << std::chrono::duration_cast<std::chrono::nanoseconds>(cpu_end - cpu_start).count()
                     << " ns" << std::endl;
 
-                for (auto const x : data) std::cout << x << " "; std::cout << std::endl;
+                //for (auto const x : data) std::cout << x << " "; std::cout << std::endl;
             }
 
         } // namespace cpu
