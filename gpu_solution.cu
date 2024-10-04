@@ -58,6 +58,9 @@
 
                 if (th_id < num_elements)
                 {
+                    // Load the data from global memory to shared memory
+                    s_data[threadIdx.x] = data[th_id];
+
                     // Perform Bitonic Sort but DIFFERENT
                     for (std::size_t stage = 2; stage <= num_elements; stage <<= 1) {
                         for (std::size_t step = stage >> 1; step > 0; step >>= 1) {
@@ -72,18 +75,18 @@
 
                                 // Compare and swap based on direction
                                 if (ascending) {
-                                    if (data[th_id] > data[partner]) {
-                                        element_t temp = data[th_id];
-                                        data[th_id] = data[partner];
-                                        data[partner] = temp;
+                                    if (s_data[th_id] > s_data[partner]) {
+                                        element_t temp = s_data[th_id];
+                                        s_data[th_id] = s_data[partner];
+                                        s_data[partner] = temp;
                                     }
                                 }
                                 else {
                                     // Descending order
-                                    if (data[th_id] < data[partner]) {
-                                        element_t temp = data[th_id];
-                                        data[th_id] = data[partner];
-                                        data[partner] = temp;
+                                    if (s_data[th_id] < s_data[partner]) {
+                                        element_t temp = s_data[th_id];
+                                        s_data[th_id] = s_data[partner];
+                                        s_data[partner] = temp;
                                     }
                                 }
                             }
@@ -91,6 +94,9 @@
                             __syncthreads();
                         }
                     }
+
+                    // Copy the sorted data back to global memory for this thread
+                    data[th_id] = s_data[threadIdx.x];
 
                     // Reverses array at invert position onwards.
                     if (th_id >= invert_at_pos) {
@@ -225,7 +231,7 @@
                 buffer << '\n';
 
                 // Print the entire buffer content to console with a single std::cout call
-                std::cout << buffer.str();
+                //std::cout << buffer.str();
             }
 
         } // namespace gpu
