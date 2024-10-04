@@ -1,4 +1,5 @@
-﻿/**
+﻿%%cuda_group_save -g "source" -n "gpu_solution.cu"
+/**
  * The file in which you will implement your GPU solutions!
  */
 
@@ -59,7 +60,7 @@
                 if (th_id < num_elements)
                 {
                     // Load the data from global memory to shared memory
-                    s_data[threadIdx.x] = data[th_id];
+                    // s_data[threadIdx.x] = data[th_id];
 
                     // Perform Bitonic Sort but DIFFERENT
                     for (std::size_t stage = 2; stage <= num_elements; stage <<= 1) {
@@ -71,32 +72,29 @@
                                 // Ascending if th_id and partner are in the same stage group (because stage shifts by 1 bit each time, this works nicely)
                                 bool ascending = (th_id & stage) == 0;
 
-                                // making the last step is hard
-
                                 // Compare and swap based on direction
                                 if (ascending) {
-                                    if (s_data[th_id] > s_data[partner]) {
-                                        element_t temp = s_data[th_id];
-                                        s_data[th_id] = s_data[partner];
-                                        s_data[partner] = temp;
+                                    if (data[th_id] > data[partner]) {
+                                        element_t temp = data[th_id];
+                                        data[th_id] = data[partner];
+                                        data[partner] = temp;
                                     }
                                 }
                                 else {
                                     // Descending order
-                                    if (s_data[th_id] < s_data[partner]) {
-                                        element_t temp = s_data[th_id];
-                                        s_data[th_id] = s_data[partner];
-                                        s_data[partner] = temp;
+                                    if (data[th_id] < data[partner]) {
+                                        element_t temp = data[th_id];
+                                        data[th_id] = data[partner];
+                                        data[partner] = temp;
                                     }
                                 }
                             }
-                            // Ensure synchronization of threads within the block
                             __syncthreads();
                         }
                     }
 
                     // Copy the sorted data back to global memory for this thread
-                    data[th_id] = s_data[threadIdx.x];
+                    // data[th_id] = s_data[threadIdx.x];
 
                     // Reverses array at invert position onwards.
                     if (th_id >= invert_at_pos) {
@@ -231,7 +229,7 @@
                 buffer << '\n';
 
                 // Print the entire buffer content to console with a single std::cout call
-                //std::cout << buffer.str();
+                std::cout << buffer.str();
             }
 
         } // namespace gpu
