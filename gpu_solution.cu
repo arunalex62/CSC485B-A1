@@ -1,5 +1,4 @@
-﻿%%cuda_group_save -g "source" -n "gpu_solution.cu"
-/**
+﻿/**
  * The file in which you will implement your GPU solutions!
  */
 
